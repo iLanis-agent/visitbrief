@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VisitBrief - walk into the appointment prepared</title>
+<style>
+  :root { --ink:#1c2b26; --muted:#6b7a73; --accent:#2f6f5e; --accent-dk:#265c4e; --card:#ffffff; --bg:#f4f6f3; --worse:#8f3a33; --better:#2f6f45; --steady:#8a6a14; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--ink); }
+  .wrap { max-width:680px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:28px; margin:0 0 6px; }
+  h2 { font-size:18px; margin:0 0 10px; }
+  .tag { color:var(--muted); margin:0 0 20px; line-height:1.45; }
+  .card { background:var(--card); border:1px solid #e3e8e4; border-radius:14px; padding:18px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  input, select { padding:9px 10px; border:1px solid #d4dcd6; border-radius:8px; font-size:15px; background:#fff; }
+  input[type=text] { width:170px; }
+  button { padding:10px 16px; border:0; border-radius:8px; background:var(--accent); color:#fff; font-size:15px; cursor:pointer; }
+  button:hover { background:var(--accent-dk); }
+  button.ghost { background:#eef1ee; color:var(--ink); }
+  button.ghost:hover { background:#e2e7e2; }
+  .sym { padding:12px 0; border-top:1px solid #eef1ee; }
+  .sym:first-of-type { border-top:0; }
+  .sym h3 { margin:0 0 4px; font-size:16px; }
+  .pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; font-weight:600; margin-left:6px; }
+  .pill.worse { background:#f6e0dd; color:var(--worse); }
+  .pill.better { background:#e2f0e6; color:var(--better); }
+  .pill.steady { background:#f6ecd2; color:var(--steady); }
+  .meta { color:var(--muted); font-size:13px; line-height:1.55; }
+  .brief-line { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:13px; padding:6px 0; border-bottom:1px dashed #eef1ee; }
+  .brief-line:last-child { border-bottom:0; }
+  .empty { color:var(--muted); text-align:center; padding:14px 0 4px; }
+  .q { display:flex; justify-content:space-between; padding:8px 0; border-top:1px solid #eef1ee; font-size:15px; }
+  .rm { font-size:12px; color:var(--muted); background:none; padding:2px 6px; }
+  .rm:hover { color:var(--worse); text-decoration:underline; }
+  #briefOut { white-space:pre-wrap; background:#f8faf8; border:1px solid #e3e8e4; border-radius:10px; padding:14px; font-size:13px; line-height:1.6; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>VisitBrief</h1>
+  <p class="tag">The doctor asks "so what's been going on?" and your mind goes blank. Log symptoms as they happen; VisitBrief turns the log into a one-screen brief with onset, trend, and worst days - plus the questions you meant to ask.</p>
+
+  <div class="card">
+    <h2>Log a symptom</h2>
+    <div class="row">
+      <div><label for="symptom">Symptom</label><input type="text" id="symptom" placeholder="Headache"></div>
+      <div><label for="date">Date</label><input type="date" id="date"></div>
+      <div><label for="severity">Severity (1-10)</label><input type="number" id="severity" min="1" max="10" value="5" style="width:80px"></div>
+      <button id="addBtn">Log it</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Right now</h2>
+    <div class="empty" id="symEmpty">Nothing logged yet. Two minutes a day beats a blank stare at the appointment.</div>
+    <div id="symList"></div>
+  </div>
+
+  <div class="card">
+    <h2>Questions for the doctor</h2>
+    <div class="row">
+      <div style="flex:1"><input type="text" id="question" placeholder="Should I stop the ibuprofen?" style="width:100%"></div>
+      <button id="qAdd">Add</button>
+    </div>
+    <div id="qList"></div>
+  </div>
+
+  <div class="card">
+    <h2>The brief</h2>
+    <div class="row" style="margin-bottom:10px">
+      <button id="buildBtn">Build my brief</button>
+      <button class="ghost" id="copyBtn">Copy</button>
+    </div>
+    <div id="briefOut" class="hidden"></div>
+  </div>
+</div>
+
+<script src="engine.js"></script>
+<script>
+(function(){
+  var E = VisitBriefEngine;
+  var entries = [], questions = [];
+  try { entries = JSON.parse(localStorage.getItem('visitbrief') || '[]'); } catch(e){}
+  try { questions = JSON.parse(localStorage.getItem('visitbrief-q') || '[]'); } catch(e){}
+  var $ = function(id){ return document.getElementById(id); };
+  function todayISO(){
+    var d = new Date();
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function save(){ localStorage.setItem('visitbrief', JSON.stringify(entries)); localStorage.setItem('visitbrief-q', JSON.stringify(questions)); }
+  function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function pillClass(t){ return t === 'getting worse' ? 'worse' : t === 'improving' ? 'better' : 'steady'; }
+
+  function render(){
+    var t = todayISO();
+    var groups = E.rankGroups(E.groupBySymptom(entries), t);
+    $('symEmpty').style.display = groups.length ? 'none' : 'block';
+    var html = '';
+    for (var i = 0; i < groups.length; i++){
+      var grp = groups[i];
+      var tr = E.trend(grp.entries, t);
+      var days = E.daysSinceOnset(grp.entries, t);
+      var p = E.peak(grp.entries);
+      html += '<div class="sym"><h3>' + esc(grp.name)
+        + '<span class="pill ' + pillClass(tr) + '">' + tr + '</span></h3>'
+        + '<div class="meta">day ' + (days + 1) + ' since onset - ' + grp.entries.length + ' log' + (grp.entries.length === 1 ? '' : 's')
+        + (p ? ' - worst ' + p.severity + '/10 (' + E.severityWord(p.severity) + ') on ' + E.fmtShort(p.date) : '')
+        + '</div></div>';
+    }
+    $('symList').innerHTML = html;
+    var qh = '';
+    for (var j = 0; j < questions.length; j++){
+      qh += '<div class="q"><span>' + esc(questions[j]) + '</span><button class="rm" data-qi="' + j + '">remove</button></div>';
+    }
+    $('qList').innerHTML = qh;
+    var rms = document.querySelectorAll('#qList .rm');
+    for (var k = 0; k < rms.length; k++){
+      rms[k].addEventListener('click', function(){
+        questions.splice(parseInt(this.getAttribute('data-qi'), 10), 1);
+        save(); render();
+      });
+    }
+  }
+
+  $('addBtn').addEventListener('click', function(){
+    var s = $('symptom').value.trim();
+    var d = $('date').value;
+    var sev = parseInt($('severity').value, 10);
+    if (!s || !d || isNaN(sev) || sev < 1 || sev > 10) return;
+    entries.push({ symptom: s, date: d, severity: sev });
+    $('symptom').value = '';
+    save(); render();
+  });
+  $('qAdd').addEventListener('click', function(){
+    var q = $('question').value.trim();
+    if (!q) return;
+    questions.push(q);
+    $('question').value = '';
+    save(); render();
+  });
+  $('buildBtn').addEventListener('click', function(){
+    var t = todayISO();
+    var groups = E.rankGroups(E.groupBySymptom(entries), t);
+    var lines = ['VISIT BRIEF - ' + E.fmtShort(t) + ', ' + t.split('-')[0], ''];
+    if (!groups.length) lines.push('(no symptoms logged)');
+    for (var i = 0; i < groups.length; i++) lines.push((i + 1) + '. ' + E.briefLine(groups[i], t));
+    if (questions.length){
+      lines.push('', 'QUESTIONS:');
+      for (var j = 0; j < questions.length; j++) lines.push('  - ' + questions[j]);
+    }
+    $('briefOut').textContent = lines.join('\n');
+    $('briefOut').classList.remove('hidden');
+  });
+  $('copyBtn').addEventListener('click', function(){
+    var text = $('briefOut').textContent;
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text);
+  });
+
+  $('date').value = todayISO();
+  render();
+})();
+</script>
+</body>
+</html>
